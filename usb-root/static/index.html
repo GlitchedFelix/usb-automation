@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Portable LLM Agent</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d1117;
+      --bg2:       #161b22;
+      --bg3:       #21262d;
+      --border:    #30363d;
+      --text:      #c9d1d9;
+      --text-mute: #8b949e;
+      --accent:    #58a6ff;
+      --green:     #3fb950;
+      --red:       #f85149;
+      --yellow:    #d29922;
+      --orange:    #e3b341;
+      --mono:      'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+      --sans:      -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      --status-h:  44px;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* ── Status bar ─────────────────────────────────────────── */
+    #status-bar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: var(--status-h);
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 16px;
+      z-index: 100;
+      font-size: 12px;
+      font-family: var(--mono);
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--text-mute);
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .dot.ok   { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .dot.err  { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+    .dot.spin { animation: pulse 1.2s ease-in-out infinite; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; } 50% { opacity: 0.3; }
+    }
+
+    #status-bar .sep {
+      color: var(--border);
+      font-size: 16px;
+      user-select: none;
+    }
+
+    #phone-ip-input {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 12px;
+      padding: 3px 8px;
+      width: 130px;
+    }
+    #phone-ip-input:focus { outline: none; border-color: var(--accent); }
+
+    .btn-sm {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      cursor: pointer;
+      font-size: 12px;
+      padding: 3px 10px;
+      transition: border-color 0.15s, color 0.15s;
+      white-space: nowrap;
+    }
+    .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+
+    #status-bar .spacer { flex: 1; }
+
+    /* ── Layout ──────────────────────────────────────────────── */
+    #layout {
+      display: grid;
+      grid-template-columns: 220px 1fr 240px;
+      height: calc(100vh - var(--status-h));
+      margin-top: var(--status-h);
+      overflow: hidden;
+    }
+
+    .panel {
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .panel:last-child { border-right: none; }
+
+    .panel-header {
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      color: var(--text-mute);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      padding: 8px 14px;
+      text-transform: uppercase;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .panel-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+    }
+    .panel-body::-webkit-scrollbar { width: 6px; }
+    .panel-body::-webkit-scrollbar-track { background: transparent; }
+    .panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── Plugins panel ───────────────────────────────────────── */
+    .plugin-item {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 8px;
+      overflow: hidden;
+    }
+
+    .plugin-name {
+      background: var(--bg3);
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 5px 10px;
+    }
+
+    .plugin-desc {
+      color: var(--text-mute);
+      font-size: 11px;
+      line-height: 1.4;
+      padding: 5px 10px 7px;
+    }
+
+    /* ── Center panel ────────────────────────────────────────── */
+    #center-panel {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #input-area {
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      padding: 12px;
+    }
+
+    #prompt-input {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 14px;
+      line-height: 1.5;
+      padding: 10px 12px;
+      resize: vertical;
+      width: 100%;
+      min-height: 80px;
+      max-height: 200px;
+      transition: border-color 0.15s;
+    }
+    #prompt-input:focus { outline: none; border-color: var(--accent); }
+    #prompt-input::placeholder { color: var(--text-mute); }
+
+    #task-controls {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+      align-items: center;
+    }
+
+    .control-input {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 12px;
+      padding: 5px 8px;
+    }
+    .control-input:focus { outline: none; border-color: var(--accent); }
+    #model-input { width: 140px; }
+    #max-iter-input { width: 80px; }
+
+    #submit-btn {
+      background: var(--accent);
+      border: none;
+      border-radius: 4px;
+      color: #0d1117;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 5px 18px;
+      transition: opacity 0.15s;
+    }
+    #submit-btn:hover { opacity: 0.85; }
+    #submit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    #task-label { flex: 1; }
+    .task-status-text {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-mute);
+    }
+
+    /* ── Output area ─────────────────────────────────────────── */
+    #output-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #output-area::-webkit-scrollbar { width: 6px; }
+    #output-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── Step card ───────────────────────────────────────────── */
+    .step-card {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .step-header {
+      align-items: center;
+      background: var(--bg2);
+      cursor: pointer;
+      display: flex;
+      gap: 8px;
+      padding: 7px 12px;
+      user-select: none;
+    }
+    .step-header:hover { background: var(--bg3); }
+
+    .step-toggle {
+      color: var(--text-mute);
+      font-size: 10px;
+      transition: transform 0.15s;
+      flex-shrink: 0;
+    }
+    .step-card.expanded .step-toggle { transform: rotate(90deg); }
+
+    .step-num {
+      background: var(--bg3);
+      border-radius: 3px;
+      color: var(--text-mute);
+      font-family: var(--mono);
+      font-size: 10px;
+      padding: 1px 5px;
+      flex-shrink: 0;
+    }
+
+    .step-action-badge {
+      border-radius: 3px;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 1px 7px;
+      flex-shrink: 0;
+    }
+
+    .badge-step   { background: #1f3a6e; color: var(--accent); }
+    .badge-finish { background: #1a3a2a; color: var(--green); }
+    .badge-error  { background: #3a1a1a; color: var(--red); }
+    .badge-parse  { background: #3a2a1a; color: var(--orange); }
+
+    .step-thought-preview {
+      color: var(--text-mute);
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .step-body {
+      display: none;
+      padding: 10px 12px;
+      border-top: 1px solid var(--border);
+    }
+    .step-card.expanded .step-body { display: block; }
+
+    .step-section {
+      margin-bottom: 10px;
+    }
+    .step-section:last-child { margin-bottom: 0; }
+
+    .step-label {
+      color: var(--text-mute);
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+
+    .step-thought-text {
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .step-code {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: #79c0ff;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.5;
+      overflow-x: auto;
+      padding: 8px 10px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .observation-text {
+      color: #adbac7;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* ── Result card ─────────────────────────────────────────── */
+    #result-card {
+      border: 1px solid var(--green);
+      border-radius: 6px;
+      display: none;
+      overflow: hidden;
+    }
+    #result-card.visible { display: block; }
+    #result-card.error { border-color: var(--red); }
+
+    .result-header {
+      align-items: center;
+      background: #1a3a2a;
+      display: flex;
+      gap: 8px;
+      padding: 8px 14px;
+    }
+    #result-card.error .result-header { background: #3a1a1a; }
+
+    .result-icon { font-size: 14px; }
+
+    .result-label {
+      color: var(--green);
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    #result-card.error .result-label { color: var(--red); }
+
+    .result-body {
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.7;
+      padding: 12px 14px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* ── History panel ───────────────────────────────────────── */
+    #history-panel .panel-body { padding: 8px; }
+
+    .history-item {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      cursor: pointer;
+      margin-bottom: 6px;
+      overflow: hidden;
+      transition: border-color 0.15s;
+    }
+    .history-item:hover { border-color: var(--accent); }
+
+    .history-header {
+      align-items: flex-start;
+      display: flex;
+      gap: 6px;
+      padding: 7px 9px;
+    }
+
+    .history-status {
+      border-radius: 3px;
+      flex-shrink: 0;
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      margin-top: 2px;
+      padding: 1px 5px;
+      text-transform: uppercase;
+    }
+    .hs-running { background: #1f3a6e; color: var(--accent); }
+    .hs-done    { background: #1a3a2a; color: var(--green); }
+    .hs-error   { background: #3a1a1a; color: var(--red); }
+
+    .history-prompt {
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.4;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+
+    .history-meta {
+      color: var(--text-mute);
+      font-family: var(--mono);
+      font-size: 10px;
+      padding: 0 9px 5px;
+    }
+
+    .history-result {
+      background: var(--bg2);
+      border-top: 1px solid var(--border);
+      color: var(--text-mute);
+      display: none;
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.5;
+      max-height: 140px;
+      overflow-y: auto;
+      padding: 7px 9px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .history-item.expanded .history-result { display: block; }
+
+    /* ── Empty states ────────────────────────────────────────── */
+    .empty-state {
+      color: var(--text-mute);
+      font-size: 12px;
+      padding: 20px;
+      text-align: center;
+    }
+
+    /* ── Scrollbar ───────────────────────────────────────────── */
+    * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+
+    /* ── Loading spinner ─────────────────────────────────────── */
+    .spinner {
+      animation: spin 0.7s linear infinite;
+      border: 2px solid var(--border);
+      border-radius: 50%;
+      border-top-color: var(--accent);
+      display: inline-block;
+      height: 12px;
+      width: 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<!-- ── Status bar ───────────────────────────────────────────── -->
+<div id="status-bar">
+  <div class="status-indicator">
+    <div class="dot spin" id="llm-dot"></div>
+    <span id="llm-label">LLM</span>
+    <span id="llm-url" style="color:var(--text-mute)"></span>
+  </div>
+
+  <span class="sep">|</span>
+
+  <div class="status-indicator">
+    <div class="dot spin" id="runtime-dot"></div>
+    <span id="runtime-label">Runtime</span>
+  </div>
+
+  <span class="sep">|</span>
+
+  <input id="phone-ip-input" type="text" placeholder="Phone IP (e.g. 192.168.43.1)" />
+  <button class="btn-sm" id="reconnect-btn" onclick="reconnect()">Reconnect</button>
+
+  <div class="spacer"></div>
+
+  <span id="status-time" style="color:var(--text-mute);font-size:11px"></span>
+  <button class="btn-sm" onclick="checkStatus()">↻ Status</button>
+</div>
+
+<!-- ── Layout ───────────────────────────────────────────────── -->
+<div id="layout">
+
+  <!-- Left: Plugins -->
+  <div class="panel" id="plugins-panel">
+    <div class="panel-header">
+      Plugins
+      <button class="btn-sm" onclick="reloadPlugins()" style="font-size:10px;padding:1px 6px">↻ Reload</button>
+    </div>
+    <div class="panel-body" id="plugins-list">
+      <div class="empty-state">Loading plugins…</div>
+    </div>
+  </div>
+
+  <!-- Center: Task input + output -->
+  <div id="center-panel">
+    <div id="input-area">
+      <textarea
+        id="prompt-input"
+        placeholder="Enter your task… (Ctrl+Enter to submit)"
+      ></textarea>
+      <div id="task-controls">
+        <input class="control-input" id="model-input" type="text" placeholder="Model" title="LLM model name" />
+        <input class="control-input" id="max-iter-input" type="number" min="1" max="50" placeholder="Iter" title="Max iterations" />
+        <button id="submit-btn" onclick="submitTask()">▶ Run</button>
+        <div id="task-label" class="task-status-text"></div>
+      </div>
+    </div>
+
+    <div id="output-area">
+      <div class="empty-state" id="output-placeholder">
+        Submit a task above to begin. Steps will stream in real time.
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: History -->
+  <div class="panel" id="history-panel">
+    <div class="panel-header">History</div>
+    <div class="panel-body" id="history-list">
+      <div class="empty-state">No tasks yet.</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+'use strict';
+
+// ── State ──────────────────────────────────────────────────────
+let stepCount = 0;
+let activeEventSource = null;
+let statusInterval = null;
+
+// ── localStorage persistence ────────────────────────────────────
+function getSaved(key, fallback) {
+  try { return localStorage.getItem(key) || fallback; } catch { return fallback; }
+}
+function setSaved(key, val) {
+  try { localStorage.setItem(key, val); } catch {}
+}
+
+// ── Init ────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('model-input').value = getSaved('llm_model', 'llama3');
+  document.getElementById('max-iter-input').value = getSaved('max_iterations', '10');
+
+  document.getElementById('prompt-input').addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') submitTask();
+  });
+
+  loadPlugins();
+  loadHistory();
+  checkStatus();
+  statusInterval = setInterval(checkStatus, 30000);
+});
+
+// ── Status check ────────────────────────────────────────────────
+async function checkStatus() {
+  const llmDot     = document.getElementById('llm-dot');
+  const llmLabel   = document.getElementById('llm-label');
+  const llmUrl     = document.getElementById('llm-url');
+  const rtDot      = document.getElementById('runtime-dot');
+  const rtLabel    = document.getElementById('runtime-label');
+  const timeEl     = document.getElementById('status-time');
+
+  llmDot.className  = 'dot spin';
+  rtDot.className   = 'dot spin';
+
+  let data;
+  try {
+    const res = await fetch('/status');
+    data = await res.json();
+  } catch {
+    llmDot.className = 'dot err';
+    rtDot.className  = 'dot err';
+    llmLabel.textContent  = 'LLM — unreachable';
+    rtLabel.textContent   = 'Runtime — unreachable';
+    return;
+  }
+
+  llmDot.className = data.llm.ok ? 'dot ok' : 'dot err';
+  llmLabel.textContent = data.llm.ok ? 'LLM ●' : 'LLM ✕';
+  if (data.llm.url) {
+    try {
+      const u = new URL(data.llm.url);
+      llmUrl.textContent = u.hostname;
+      document.getElementById('phone-ip-input').placeholder = u.hostname;
+    } catch {
+      llmUrl.textContent = data.llm.url;
+    }
+  }
+
+  rtDot.className = data.runtime.ok ? 'dot ok' : 'dot err';
+  rtLabel.textContent = data.runtime.ok ? 'Runtime ●' : 'Runtime ✕';
+
+  const now = new Date();
+  timeEl.textContent = now.toLocaleTimeString();
+}
+
+// ── Reconnect ───────────────────────────────────────────────────
+async function reconnect() {
+  const ip = document.getElementById('phone-ip-input').value.trim();
+  if (!ip) { alert('Enter a phone IP address first.'); return; }
+
+  const btn = document.getElementById('reconnect-btn');
+  btn.disabled = true;
+  btn.textContent = '…';
+
+  try {
+    const res = await fetch('/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phoneIp: ip }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Unknown error');
+    await checkStatus();
+  } catch (err) {
+    alert('Reconnect failed: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Reconnect';
+  }
+}
+
+// ── Load plugins ────────────────────────────────────────────────
+async function loadPlugins() {
+  const container = document.getElementById('plugins-list');
+  try {
+    const res = await fetch('/plugins');
+    const plugins = await res.json();
+
+    if (!Array.isArray(plugins) || plugins.length === 0) {
+      container.innerHTML = '<div class="empty-state">No plugins loaded.</div>';
+      return;
+    }
+
+    container.innerHTML = plugins.map((p) => `
+      <div class="plugin-item">
+        <div class="plugin-name">${escHtml(p.name)}</div>
+        <div class="plugin-desc">${escHtml(p.description)}</div>
+      </div>
+    `).join('');
+  } catch {
+    container.innerHTML = '<div class="empty-state">Failed to load plugins.</div>';
+  }
+}
+
+async function reloadPlugins() {
+  try {
+    await fetch('/plugins/reload', { method: 'POST' });
+    await loadPlugins();
+  } catch (err) {
+    alert('Reload failed: ' + err.message);
+  }
+}
+
+// ── Submit task ─────────────────────────────────────────────────
+async function submitTask() {
+  const promptEl  = document.getElementById('prompt-input');
+  const modelEl   = document.getElementById('model-input');
+  const iterEl    = document.getElementById('max-iter-input');
+  const submitBtn = document.getElementById('submit-btn');
+  const labelEl   = document.getElementById('task-label');
+  const outputEl  = document.getElementById('output-area');
+
+  const prompt = promptEl.value.trim();
+  if (!prompt) { promptEl.focus(); return; }
+
+  const model    = modelEl.value.trim();
+  const maxIter  = parseInt(iterEl.value, 10) || 10;
+
+  setSaved('llm_model', model);
+  setSaved('max_iterations', String(maxIter));
+
+  // Cancel any existing stream
+  if (activeEventSource) {
+    activeEventSource.close();
+    activeEventSource = null;
+  }
+
+  // Reset output
+  stepCount = 0;
+  outputEl.innerHTML = '';
+  setResultCard(false);
+  setTaskLabel('Sending task…', false);
+  submitBtn.disabled = true;
+
+  let taskId;
+  try {
+    const res = await fetch('/task', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, model, max_iterations: maxIter }),
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(e.error || res.statusText);
+    }
+    const data = await res.json();
+    taskId = data.id;
+  } catch (err) {
+    setTaskLabel('Error: ' + err.message, true);
+    submitBtn.disabled = false;
+    return;
+  }
+
+  setTaskLabel('Task ' + taskId.slice(0, 8) + '… running', false);
+  streamTask(taskId, submitBtn, labelEl);
+}
+
+// ── Stream SSE ───────────────────────────────────────────────────
+function streamTask(taskId, submitBtn, labelEl) {
+  const evtSrc = new EventSource('/task/' + taskId + '/stream');
+  activeEventSource = evtSrc;
+
+  evtSrc.addEventListener('step', (e) => {
+    const step = JSON.parse(e.data);
+    renderStep(step);
+  });
+
+  evtSrc.addEventListener('end', (e) => {
+    const data = JSON.parse(e.data);
+    evtSrc.close();
+    activeEventSource = null;
+    submitBtn.disabled = false;
+
+    if (data.status === 'done') {
+      setTaskLabel('Done ✓', false);
+      setResultCard(true, data.result, false);
+    } else {
+      setTaskLabel('Error ✕', true);
+      setResultCard(true, data.result || 'An error occurred.', true);
+    }
+
+    loadHistory();
+  });
+
+  evtSrc.onerror = () => {
+    evtSrc.close();
+    activeEventSource = null;
+    submitBtn.disabled = false;
+    setTaskLabel('Stream disconnected', true);
+    loadHistory();
+  };
+}
+
+// ── Render a step ────────────────────────────────────────────────
+function renderStep(step) {
+  const outputEl = document.getElementById('output-area');
+  const placeholder = document.getElementById('output-placeholder');
+  if (placeholder) placeholder.remove();
+
+  stepCount++;
+  const num = stepCount;
+
+  const typeMap = {
+    step:          { cls: 'badge-step',   label: step.action || 'tool' },
+    finish:        { cls: 'badge-finish', label: 'finish' },
+    parse_failure: { cls: 'badge-parse',  label: 'parse error' },
+    error:         { cls: 'badge-error',  label: 'error' },
+  };
+  const badge = typeMap[step.type] || typeMap.step;
+
+  const thoughtPreview = step.thought
+    ? escHtml(step.thought.slice(0, 120)) + (step.thought.length > 120 ? '…' : '')
+    : '—';
+
+  const paramsHtml = step.params
+    ? `<div class="step-section">
+         <div class="step-label">Params</div>
+         <div class="step-code">${escHtml(JSON.stringify(step.params, null, 2))}</div>
+       </div>`
+    : '';
+
+  const observationHtml = step.observation
+    ? `<div class="step-section">
+         <div class="step-label">Observation</div>
+         <div class="observation-text">${escHtml(step.observation)}</div>
+       </div>`
+    : '';
+
+  const thoughtHtml = step.thought
+    ? `<div class="step-section">
+         <div class="step-label">Thought</div>
+         <div class="step-thought-text">${escHtml(step.thought)}</div>
+       </div>`
+    : '';
+
+  const id = 'step-' + num;
+  const card = document.createElement('div');
+  card.className = 'step-card expanded';
+  card.id = id;
+  card.innerHTML = `
+    <div class="step-header" onclick="toggleStep('${id}')">
+      <span class="step-toggle">▶</span>
+      <span class="step-num">${num}</span>
+      <span class="step-action-badge ${badge.cls}">${escHtml(badge.label)}</span>
+      <span class="step-thought-preview">${thoughtPreview}</span>
+    </div>
+    <div class="step-body">
+      ${thoughtHtml}
+      ${paramsHtml}
+      ${observationHtml}
+    </div>
+  `;
+
+  outputEl.appendChild(card);
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function toggleStep(id) {
+  const card = document.getElementById(id);
+  if (card) card.classList.toggle('expanded');
+}
+
+// ── Result card ──────────────────────────────────────────────────
+function setResultCard(visible, text, isError) {
+  let card = document.getElementById('result-card');
+  if (!card) {
+    card = document.createElement('div');
+    card.id = 'result-card';
+    document.getElementById('output-area').appendChild(card);
+  }
+
+  if (!visible) {
+    card.className = 'step-card';
+    card.style.display = 'none';
+    return;
+  }
+
+  card.style.display = '';
+  card.className = isError ? 'step-card error visible' : 'step-card visible';
+  card.innerHTML = `
+    <div class="result-header">
+      <span class="result-icon">${isError ? '✕' : '✓'}</span>
+      <span class="result-label">${isError ? 'Error' : 'Result'}</span>
+    </div>
+    <div class="result-body">${escHtml(text || '')}</div>
+  `;
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function setTaskLabel(msg, isError) {
+  const el = document.getElementById('task-label');
+  el.textContent = msg;
+  el.style.color = isError ? 'var(--red)' : 'var(--text-mute)';
+}
+
+// ── Load history ─────────────────────────────────────────────────
+async function loadHistory() {
+  const container = document.getElementById('history-list');
+  let tasks;
+  try {
+    const res = await fetch('/logs');
+    tasks = await res.json();
+  } catch {
+    return;
+  }
+
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    container.innerHTML = '<div class="empty-state">No tasks yet.</div>';
+    return;
+  }
+
+  container.innerHTML = tasks.slice(0, 10).map((t) => {
+    const age = timeAgo(t.created_at);
+    const statusCls = { running: 'hs-running', done: 'hs-done', error: 'hs-error' }[t.status] || 'hs-running';
+    const result = t.result ? escHtml(t.result.slice(0, 400)) : '—';
+
+    return `
+      <div class="history-item" onclick="toggleHistory(this)">
+        <div class="history-header">
+          <span class="history-status ${statusCls}">${t.status}</span>
+          <span class="history-prompt">${escHtml(t.prompt)}</span>
+        </div>
+        <div class="history-meta">${age}</div>
+        <div class="history-result">${result}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function toggleHistory(el) {
+  el.classList.toggle('expanded');
+}
+
+// ── Helpers ──────────────────────────────────────────────────────
+function escHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function timeAgo(tsMs) {
+  const diff = Date.now() - tsMs;
+  if (diff < 60000)  return Math.round(diff / 1000) + 's ago';
+  if (diff < 3600000) return Math.round(diff / 60000) + 'm ago';
+  if (diff < 86400000) return Math.round(diff / 3600000) + 'h ago';
+  return Math.round(diff / 86400000) + 'd ago';
+}
+</script>
+</body>
+</html>

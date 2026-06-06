@@ -1,0 +1,40 @@
+{
+  "llm": {
+    "url": "http://192.168.43.1:11434",
+    "mode": "ollama",
+    "model": "llama3",
+    "max_iterations": 10
+  },
+  "bridge": {
+    "port": 3000
+  },
+  "runtime": {
+    "port": 3001,
+    "safe_directory": "",
+    "log_retention_days": 7
+  },
+  "apps": {
+    "notepad": "notepad.exe",
+    "calculator": "calc.exe",
+    "terminal": "cmd.exe",
+    "textedit": "/System/Applications/TextEdit.app/Contents/MacOS/TextEdit",
+    "gedit": "/usr/bin/gedit",
+    "nautilus": "/usr/bin/nautilus"
+  },
+  "allowed_commands": [
+    "ls",
+    "dir",
+    "pwd",
+    "echo",
+    "date",
+    "whoami",
+    "ipconfig",
+    "ifconfig",
+    "ping",
+    "hostname",
+    "uname",
+    "df",
+    "free"
+  ],
+  "allowed_scripts": {}
+}
