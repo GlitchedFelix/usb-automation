@@ -19,6 +19,8 @@ function buildSystemPrompt(plugins) {
 CRITICAL RULES:
 - ALWAYS respond with a single raw JSON object. No prose. No markdown. No code fences. No explanation outside the JSON.
 - Every response must be parseable by JSON.parse().
+- If the user is just chatting or asking a question that needs no tool, use "finish" immediately with your answer as the result.
+- NEVER output "undefined", null, or a made-up tool name as the action.
 
 Available tools:
 ${toolDocs}
@@ -26,11 +28,11 @@ ${toolDocs}
 Format for calling a tool:
 {"thought":"your reasoning about what to do next","action":"tool_name","params":{"param1":"value1"}}
 
-Format for finishing:
-{"thought":"your reasoning about why the task is complete","action":"finish","result":"the final answer or summary of what was accomplished"}
+Format for finishing (use this for answers, conversation, and completed tasks):
+{"thought":"your reasoning","action":"finish","result":"your answer or summary"}
 
 Rules:
-- Use "finish" when the task is done or cannot be completed further.
+- Use "finish" when the task is done, no tool is needed, or you are answering a question.
 - Params must match the tool's parameter schema exactly.
 - If a tool returns an error, adapt your approach.
 - Never call a tool that is not in the available tools list.
@@ -173,7 +175,11 @@ async function runAgent({
       }
     }
 
-    const { thought, action, params, result } = parsed;
+    const { thought, params, result } = parsed;
+    // Treat missing, null, or "undefined" action as finish to handle model confusion
+    const action = (parsed.action && parsed.action !== 'undefined' && parsed.action !== 'null')
+      ? parsed.action
+      : 'finish';
 
     // --- Handle finish ---
     if (action === 'finish') {
