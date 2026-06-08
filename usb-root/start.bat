@@ -46,7 +46,6 @@ if !ERRORLEVEL! neq 0 (
 
 echo.
 echo [2/3] Starting bridge server (port 3000)...
-start "USB-LLM-Bridge" /min cmd /c ""%NODE_BIN%" "%SCRIPT_DIR%bridge\bridge.js" 2>&1 | "%NODE_BIN%" -e "process.stdin.pipe(require('fs').createWriteStream('%SCRIPT_DIR%bridge\logs\bridge.log',{flags:'a'}))"" 2>nul
 start "USB-LLM-Bridge" /min "%NODE_BIN%" "%SCRIPT_DIR%bridge\bridge.js"
 
 timeout /t 2 /nobreak >nul
