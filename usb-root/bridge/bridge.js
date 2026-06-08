@@ -79,7 +79,6 @@ const RUNTIME_PORT = config.runtime.port || 3001;
 const RUNTIME_URL = `http://localhost:${RUNTIME_PORT}`;
 
 const app = express();
-app.use(express.json());
 
 // Serve static UI
 app.use(express.static(STATIC_DIR));
@@ -130,7 +129,7 @@ app.get('/status', async (req, res) => {
 });
 
 // POST /config — update phone IP
-app.post('/config', (req, res) => {
+app.post('/config', express.json(), (req, res) => {
   const { phoneIp } = req.body;
   if (!phoneIp || typeof phoneIp !== 'string') {
     return res.status(400).json({ error: 'phoneIp string is required' });
